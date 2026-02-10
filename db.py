@@ -105,18 +105,18 @@ def init_db(conn):
         """
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_records_domain_norm ON records(domain_norm)"
+        "CREATE INDEX IF NOT EXISTS idx_records_domain_norm ON records(domain_norm) WHERE length(domain_norm) <= 512"
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_records_login_norm ON records(login_norm)"
+        "CREATE INDEX IF NOT EXISTS idx_records_login_norm ON records(login_norm) WHERE length(login_norm) <= 512"
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_records_email_norm ON records(email_norm)"
+        "CREATE INDEX IF NOT EXISTS idx_records_email_norm ON records(email_norm) WHERE length(email_norm) <= 512"
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_records_email_domain_norm ON records(email_domain_norm)"
+        "CREATE INDEX IF NOT EXISTS idx_records_email_domain_norm ON records(email_domain_norm) WHERE length(email_domain_norm) <= 512"
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_records_url_norm ON records(url_norm)"
+        "CREATE INDEX IF NOT EXISTS idx_records_url_norm ON records(url_norm) WHERE length(url_norm) <= 512"
     )
     conn.commit()

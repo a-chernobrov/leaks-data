@@ -257,20 +257,24 @@ def drop_indexes(conn):
 
 def recreate_indexes(conn):
     db_execute(
-        conn, "CREATE INDEX IF NOT EXISTS idx_records_domain_norm ON records(domain_norm)"
-    )
-    db_execute(
-        conn, "CREATE INDEX IF NOT EXISTS idx_records_login_norm ON records(login_norm)"
-    )
-    db_execute(
-        conn, "CREATE INDEX IF NOT EXISTS idx_records_email_norm ON records(email_norm)"
+        conn,
+        "CREATE INDEX IF NOT EXISTS idx_records_domain_norm ON records(domain_norm) WHERE length(domain_norm) <= 512",
     )
     db_execute(
         conn,
-        "CREATE INDEX IF NOT EXISTS idx_records_email_domain_norm ON records(email_domain_norm)",
+        "CREATE INDEX IF NOT EXISTS idx_records_login_norm ON records(login_norm) WHERE length(login_norm) <= 512",
     )
     db_execute(
-        conn, "CREATE INDEX IF NOT EXISTS idx_records_url_norm ON records(url_norm)"
+        conn,
+        "CREATE INDEX IF NOT EXISTS idx_records_email_norm ON records(email_norm) WHERE length(email_norm) <= 512",
+    )
+    db_execute(
+        conn,
+        "CREATE INDEX IF NOT EXISTS idx_records_email_domain_norm ON records(email_domain_norm) WHERE length(email_domain_norm) <= 512",
+    )
+    db_execute(
+        conn,
+        "CREATE INDEX IF NOT EXISTS idx_records_url_norm ON records(url_norm) WHERE length(url_norm) <= 512",
     )
     conn.commit()
 
