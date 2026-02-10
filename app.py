@@ -1,5 +1,6 @@
 import ipaddress
 import re
+from pathlib import Path
 from typing import List, Tuple
 from urllib.parse import urlparse
 
@@ -8,7 +9,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
-from db import get_conn, init_db
+from db import configure_database, db_execute, get_conn, init_db
+
+
+def resolve_database_url():
+    host = "postgres" if Path("/.dockerenv").exists() else "localhost"
+    return f"postgresql://leakbase:leakbase@{host}:5432/leakbase"
+
+
+DATABASE_URL = resolve_database_url()
+configure_database(DATABASE_URL)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -227,21 +237,19 @@ def index():
           min-height: 100vh;
           padding: 24px;
         }
-        .layout {
+        .page {
           width: min(1040px, 100%);
           margin: 0 auto;
           display: grid;
-          grid-template-columns: minmax(0, 1fr) 260px;
           gap: 18px;
-          align-items: start;
         }
         .card {
-          width: min(720px, 100%);
           background: #111827;
           border: 1px solid #1f2937;
           border-radius: 16px;
           padding: 28px;
           box-shadow: 0 12px 40px rgba(15, 23, 42, 0.45);
+          position: relative;
         }
         .title {
           font-size: 22px;
@@ -257,6 +265,25 @@ def index():
           display: flex;
           gap: 12px;
           flex-wrap: wrap;
+        }
+        .toolbar {
+          display: flex;
+          gap: 12px;
+          align-items: center;
+          margin-bottom: 16px;
+        }
+        .toolbar button {
+          background: #2563eb;
+          color: #fff;
+          border: none;
+          padding: 10px 16px;
+          border-radius: 10px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .toolbar button:hover {
+          background: #1d4ed8;
         }
         .search input {
           flex: 1;
@@ -305,6 +332,17 @@ def index():
           gap: 12px;
           margin-top: 20px;
         }
+        .nav {
+          margin-top: 14px;
+        }
+        .nav a {
+          color: #93c5fd;
+          font-size: 13px;
+          text-decoration: none;
+        }
+        .nav a:hover {
+          text-decoration: underline;
+        }
         .stat {
           background: #0b1220;
           border: 1px solid #1f2937;
@@ -319,6 +357,15 @@ def index():
         .stat-value {
           font-size: 18px;
           font-weight: 600;
+        }
+        .pattern-list {
+          list-style: none;
+          padding: 0;
+          margin: 8px 0 0;
+          display: grid;
+          gap: 6px;
+          font-size: 13px;
+          color: #cbd5f5;
         }
         .hint {
           margin-top: 18px;
@@ -374,30 +421,17 @@ def index():
         .spinner.active {
           display: inline-block;
         }
-        .legend {
+        .db-size {
+          position: absolute;
+          top: 18px;
+          right: 18px;
           background: #0b1220;
           border: 1px solid #1f2937;
-          border-radius: 16px;
-          padding: 18px;
-        }
-        .legend-title {
-          font-size: 14px;
-          font-weight: 600;
-          margin-bottom: 10px;
-        }
-        .legend-subtitle {
+          color: #e2e8f0;
+          border-radius: 999px;
+          padding: 6px 10px;
           font-size: 12px;
-          color: #94a3b8;
-          margin-bottom: 12px;
-        }
-        .legend-list {
-          list-style: none;
-          padding: 0;
-          margin: 0;
-          display: grid;
-          gap: 10px;
-          font-size: 13px;
-          color: #cbd5f5;
+          font-weight: 600;
         }
         @keyframes spin {
           to { transform: rotate(360deg); }
@@ -405,8 +439,9 @@ def index():
       </style>
     </head>
     <body>
-      <div class="layout">
+      <div class="page">
         <div class="card">
+          <div class="db-size" id="db-size">—</div>
           <div class="title">Поиск утечек</div>
           <div class="subtitle">URL, email, логин, домен почты или IP</div>
           <div class="search">
@@ -431,38 +466,27 @@ def index():
             <span class="spinner" id="spinner"></span>
             <span id="status-text"></span>
           </div>
+          <div class="nav">
+            <a href="/calculations">Перейти к расчетам</a>
+          </div>
         </div>
-        <aside class="legend">
-          <div class="legend-title">Легенда</div>
-          <div class="legend-subtitle">По текущему запросу</div>
-          <ul class="legend-list">
-            <li>Пароли встречающиеся несколько раз: <span id="stat-dup">—</span></li>
-            <li>Пароли которые содержат логин или его значительную часть: <span id="stat-login">—</span></li>
-          </ul>
-        </aside>
       </div>
       <script>
         const input = document.getElementById("q")
         const btn = document.getElementById("search")
         const count = document.getElementById("count")
         const total = document.getElementById("total")
+        const dbSize = document.getElementById("db-size")
         const results = document.getElementById("results")
         const resultMeta = document.getElementById("result-meta")
         const download = document.getElementById("download")
         const spinner = document.getElementById("spinner")
         const statusText = document.getElementById("status-text")
-        const statDup = document.getElementById("stat-dup")
-        const statLogin = document.getElementById("stat-login")
         async function loadTotal() {
           const res = await fetch("/api/stats")
           const data = await res.json()
           total.textContent = data.total
-        }
-        async function loadPasswordStats(q) {
-          const res = await fetch(`/api/password_stats?q=${encodeURIComponent(q)}`)
-          const data = await res.json()
-          statDup.textContent = data.repeated
-          statLogin.textContent = data.contains_login
+          dbSize.textContent = data.db_size || "—"
         }
         function updateDownload(q) {
           if (!q) {
@@ -482,14 +506,11 @@ def index():
             updateDownload("")
             statusText.textContent = ""
             spinner.classList.remove("active")
-            statDup.textContent = "—"
-            statLogin.textContent = "—"
             return
           }
           updateDownload(q)
           statusText.textContent = "Поиск..."
           spinner.classList.add("active")
-          loadPasswordStats(q)
           const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&include_items=true&limit=20&offset=0`)
           const data = await res.json()
           count.textContent = data.count
@@ -520,6 +541,265 @@ def index():
     """
 
 
+@app.get("/calculations", response_class=HTMLResponse)
+def calculations():
+    return """
+    <!doctype html>
+    <html lang="ru">
+    <head>
+      <meta charset="utf-8">
+      <title>Leakbase Calculations</title>
+      <style>
+        :root {
+          color-scheme: light;
+        }
+        body {
+          margin: 0;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+          background: #0f172a;
+          color: #e2e8f0;
+          min-height: 100vh;
+          padding: 24px;
+        }
+        .page {
+          width: min(900px, 100%);
+          margin: 0 auto;
+          display: grid;
+          gap: 18px;
+        }
+        .card {
+          background: #111827;
+          border: 1px solid #1f2937;
+          border-radius: 16px;
+          padding: 28px;
+          box-shadow: 0 12px 40px rgba(15, 23, 42, 0.45);
+        }
+        .title {
+          font-size: 22px;
+          font-weight: 600;
+          margin-bottom: 6px;
+        }
+        .subtitle {
+          font-size: 14px;
+          color: #94a3b8;
+          margin-bottom: 22px;
+        }
+        .search {
+          display: flex;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+        .search input {
+          flex: 1;
+          min-width: 240px;
+          background: #0b1220;
+          border: 1px solid #1f2937;
+          color: #e2e8f0;
+          padding: 12px 14px;
+          border-radius: 10px;
+          font-size: 15px;
+          outline: none;
+        }
+        .search button {
+          background: #2563eb;
+          color: #fff;
+          border: none;
+          padding: 12px 18px;
+          border-radius: 10px;
+          font-size: 15px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .search button:hover {
+          background: #1d4ed8;
+        }
+        .card-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
+          margin-bottom: 12px;
+        }
+        .card-head .title {
+          margin: 0;
+        }
+        .card-head .subtitle {
+          margin: 4px 0 0;
+        }
+        .card-actions {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+        }
+        .card-actions button {
+          background: #2563eb;
+          color: #fff;
+          border: none;
+          padding: 10px 16px;
+          border-radius: 10px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .card-actions button:hover {
+          background: #1d4ed8;
+        }
+        .metrics {
+          display: grid;
+          gap: 14px;
+          margin-top: 16px;
+        }
+        .metric {
+          background: #0b1220;
+          border: 1px solid #1f2937;
+          border-radius: 12px;
+          padding: 14px;
+        }
+        .metric-label {
+          font-size: 12px;
+          color: #94a3b8;
+          margin-bottom: 6px;
+        }
+        .metric-value {
+          font-size: 18px;
+          font-weight: 600;
+        }
+        .section-title {
+          font-size: 16px;
+          font-weight: 600;
+          margin-bottom: 6px;
+        }
+        .section-subtitle {
+          font-size: 13px;
+          color: #94a3b8;
+        }
+        .pattern-list {
+          list-style: none;
+          padding: 0;
+          margin: 8px 0 0;
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 6px 12px;
+          font-size: 13px;
+          color: #cbd5f5;
+        }
+        .pattern-list.dense {
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+        }
+        .status {
+          margin-top: 12px;
+          font-size: 12px;
+          color: #94a3b8;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .spinner {
+          width: 12px;
+          height: 12px;
+          border: 2px solid #1f2937;
+          border-top-color: #60a5fa;
+          border-radius: 50%;
+          animation: spin 0.9s linear infinite;
+          display: none;
+        }
+        .spinner.active {
+          display: inline-block;
+        }
+        .nav a {
+          color: #93c5fd;
+          font-size: 13px;
+          text-decoration: none;
+        }
+        .nav a:hover {
+          text-decoration: underline;
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="page">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <div class="title">Расчеты</div>
+              <div class="subtitle">По всем записям в базе</div>
+            </div>
+            <div class="card-actions">
+              <button id="run">Пересчитать</button>
+            </div>
+          </div>
+          <div class="section-title">Пароли которые содержат логин или его часть</div>
+          <div class="section-subtitle">Общее количество, доля от базы и 50 распространенных патернов</div>
+          <div class="metrics">
+            <div class="metric">
+              <div class="metric-label">Общее количество</div>
+              <div class="metric-value" id="stat-total">—</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Доля от базы</div>
+              <div class="metric-value" id="stat-percent">—</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">50 распространенных патернов</div>
+              <ul class="pattern-list" id="stat-patterns"></ul>
+            </div>
+          </div>
+          <div class="section-title" style="margin-top: 22px;">50 распространенных паролей</div>
+          <div class="metric">
+            <div class="metric-label">Топ-50 по всем записям</div>
+            <ul class="pattern-list dense" id="stat-passwords-50"></ul>
+          </div>
+          <div class="status">
+            <span class="spinner" id="spinner"></span>
+            <span id="status-text"></span>
+          </div>
+          <div class="nav">
+            <a href="/">Назад к поиску</a>
+          </div>
+        </div>
+      </div>
+      <script>
+        const btn = document.getElementById("run")
+        const statTotal = document.getElementById("stat-total")
+        const statPercent = document.getElementById("stat-percent")
+        const statPatterns = document.getElementById("stat-patterns")
+        const statPasswords50 = document.getElementById("stat-passwords-50")
+        const spinner = document.getElementById("spinner")
+        const statusText = document.getElementById("status-text")
+        async function loadCalculations() {
+          const res = await fetch("/api/calculations")
+          const data = await res.json()
+          statTotal.textContent = data.contains_login_total
+          statPercent.textContent = data.contains_login_percent
+          if (data.top_patterns && data.top_patterns.length > 0) {
+            statPatterns.innerHTML = data.top_patterns.map((item) => `<li>${item.pattern} — ${item.count}</li>`).join("")
+          } else {
+            statPatterns.innerHTML = "<li>—</li>"
+          }
+          if (data.top_passwords_50 && data.top_passwords_50.length > 0) {
+            statPasswords50.innerHTML = data.top_passwords_50.map((item) => `<li>${item.password} — ${item.count}</li>`).join("")
+          } else {
+            statPasswords50.innerHTML = "<li>—</li>"
+          }
+        }
+        async function run() {
+          statusText.textContent = "Расчет..."
+          spinner.classList.add("active")
+          await loadCalculations()
+          statusText.textContent = "Готово"
+          spinner.classList.remove("active")
+        }
+        btn.addEventListener("click", run)
+        run()
+      </script>
+    </body>
+    </html>
+    """
+
+
 @app.get("/api/search")
 def search(
     url: str = Query(default=""),
@@ -535,19 +815,17 @@ def search(
 ):
     where, args = build_query(url, email, login, password, email_domain, q, mode)
     conn = get_conn()
-    count = conn.execute(f"SELECT COUNT(*) FROM records WHERE {where}", args).fetchone()[0]
+    count = db_execute(
+        conn, f"SELECT COUNT(*) FROM records WHERE {where}", args
+    ).fetchone()[0]
     items = []
     if include_items and limit > 0:
-        conn.row_factory = lambda cursor, row: {
-            "url": row[0],
-            "login": row[1],
-            "password": row[2],
-        }
-        rows = conn.execute(
+        rows = db_execute(
+            conn,
             f"SELECT url, login, password FROM records WHERE {where} LIMIT ? OFFSET ?",
             args + [limit, offset],
         ).fetchall()
-        items = rows
+        items = [{"url": row[0], "login": row[1], "password": row[2]} for row in rows]
     conn.close()
     return JSONResponse({"count": count, "items": items})
 
@@ -555,9 +833,12 @@ def search(
 @app.get("/api/stats")
 def stats():
     conn = get_conn()
-    total = conn.execute("SELECT COUNT(*) FROM records").fetchone()[0]
+    total = db_execute(conn, "SELECT COUNT(*) FROM records").fetchone()[0]
+    db_size = db_execute(
+        conn, "SELECT pg_size_pretty(pg_database_size(current_database()))"
+    ).fetchone()[0]
     conn.close()
-    return JSONResponse({"total": total})
+    return JSONResponse({"total": total, "db_size": db_size})
 
 
 @app.get("/api/password_stats")
@@ -575,25 +856,87 @@ def password_stats(
     else:
         where, args = build_query(url, email, login, password, email_domain, q, mode)
     conn = get_conn()
-    repeated = conn.execute(
+    repeated = db_execute(
+        conn,
         f"SELECT COUNT(*) FROM (SELECT password FROM records WHERE {where} GROUP BY password HAVING COUNT(*) > 1)",
         args,
     ).fetchone()[0]
-    contains_login = conn.execute(
+    contains_login = db_execute(
+        conn,
         f"""
         SELECT COUNT(*) FROM records
         WHERE {where}
           AND login IS NOT NULL
           AND LENGTH(login) >= 4
           AND (
-            INSTR(LOWER(password), LOWER(login)) > 0
-            OR INSTR(LOWER(password), LOWER(SUBSTR(login, 1, 4))) > 0
+            POSITION(LOWER(login) IN LOWER(password)) > 0
+            OR POSITION(LOWER(SUBSTRING(login FROM 1 FOR 4)) IN LOWER(password)) > 0
           )
         """,
         args,
     ).fetchone()[0]
     conn.close()
     return JSONResponse({"repeated": repeated, "contains_login": contains_login})
+
+
+@app.get("/api/calculations")
+def calculations_api():
+    conn = get_conn()
+    cursor = db_execute(
+        conn,
+        """
+        SELECT login, password
+        FROM records
+        WHERE login IS NOT NULL
+          AND password IS NOT NULL
+          AND LENGTH(login) >= 4
+        """
+    )
+    total = 0
+    pattern_counts = {}
+    for login, password in cursor:
+        if not login or not password:
+            continue
+        login_lower = login.lower()
+        password_lower = password.lower()
+        if login_lower in password_lower:
+            pattern = password_lower.replace(login_lower, "{login}")
+            total += 1
+            pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
+            continue
+        login_part = login_lower[:4]
+        if login_part and login_part in password_lower:
+            pattern = password_lower.replace(login_part, "{login4}")
+            total += 1
+            pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
+    sorted_patterns = sorted(pattern_counts.items(), key=lambda item: item[1], reverse=True)
+    top_patterns = sorted_patterns[:50]
+    total_records = db_execute(conn, "SELECT COUNT(*) FROM records").fetchone()[0]
+    percent = round((total / total_records) * 100, 2) if total_records else 0
+    top_password_rows = db_execute(
+        conn,
+        """
+        SELECT password, COUNT(*) AS total
+        FROM records
+        WHERE password IS NOT NULL AND password != ''
+        GROUP BY password
+        ORDER BY total DESC
+        LIMIT 50
+        """
+    ).fetchall()
+    conn.close()
+    return JSONResponse(
+        {
+            "contains_login_total": total,
+            "contains_login_percent": f"{percent}%",
+            "top_patterns": [
+                {"pattern": pattern, "count": count} for pattern, count in top_patterns
+            ],
+            "top_passwords_50": [
+                {"password": password, "count": count} for password, count in top_password_rows
+            ],
+        }
+    )
 
 
 @app.get("/api/download")
@@ -611,8 +954,8 @@ def download_all(
     def generate():
         conn = get_conn()
         try:
-            cursor = conn.execute(
-                f"SELECT url, login, password FROM records WHERE {where}", args
+            cursor = db_execute(
+                conn, f"SELECT url, login, password FROM records WHERE {where}", args
             )
             while True:
                 rows = cursor.fetchmany(2000)

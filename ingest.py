@@ -1,10 +1,10 @@
 import argparse
 import hashlib
-import sqlite3
 from pathlib import Path
 from urllib.parse import urlparse
 
-from db import get_conn, init_db
+from app import DATABASE_URL
+from db import configure_database, db_execute, db_executemany, get_conn, init_db, insert_statement
 
 
 def normalize_url(value: str):
@@ -104,7 +104,7 @@ def report_progress(path: Path, file_done: int, file_size: int, total_done: int,
         )
 
 
-def ingest_file(conn, path: Path, batch_size: int, total_done: int, total_size: int):
+def ingest_file(conn, path: Path, batch_size: int, total_done: int, total_size: int, use_copy: bool):
     rows = []
     inserted = 0
     file_size = path.stat().st_size
@@ -119,7 +119,7 @@ def ingest_file(conn, path: Path, batch_size: int, total_done: int, total_size: 
                 continue
             rows.append(item)
             if len(rows) >= batch_size:
-                inserted += insert_rows(conn, rows)
+                inserted += insert_rows(conn, rows, use_copy)
                 rows.clear()
                 file_done = processed_bytes
                 if file_done - last_report >= report_step:
@@ -132,7 +132,7 @@ def ingest_file(conn, path: Path, batch_size: int, total_done: int, total_size: 
                     )
                     last_report = file_done
     if rows:
-        inserted += insert_rows(conn, rows)
+        inserted += insert_rows(conn, rows, use_copy)
     file_done = processed_bytes
     report_progress(
         path,
@@ -144,10 +144,33 @@ def ingest_file(conn, path: Path, batch_size: int, total_done: int, total_size: 
     return inserted, file_done
 
 
-def insert_rows(conn, rows):
-    cursor = conn.executemany(
+def ensure_stage_table(conn):
+    db_execute(
+        conn,
         """
-        INSERT OR IGNORE INTO records (
+        CREATE TEMP TABLE IF NOT EXISTS records_stage (
+            url TEXT,
+            url_norm TEXT,
+            domain TEXT,
+            domain_norm TEXT,
+            login TEXT,
+            login_norm TEXT,
+            email TEXT,
+            email_norm TEXT,
+            email_domain TEXT,
+            email_domain_norm TEXT,
+            password TEXT,
+            hash TEXT
+        )
+        """,
+    )
+
+
+def copy_rows(conn, rows):
+    cursor = conn.cursor()
+    with cursor.copy(
+        """
+        COPY records_stage (
             url,
             url_norm,
             domain,
@@ -160,51 +183,104 @@ def insert_rows(conn, rows):
             email_domain_norm,
             password,
             hash
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        rows,
+        ) FROM STDIN
+        """
+    ) as copy:
+        for row in rows:
+            copy.write_row(row)
+
+
+def flush_stage(conn):
+    cursor = db_execute(
+        conn,
+        """
+        INSERT INTO records (
+            url,
+            url_norm,
+            domain,
+            domain_norm,
+            login,
+            login_norm,
+            email,
+            email_norm,
+            email_domain,
+            email_domain_norm,
+            password,
+            hash
+        )
+        SELECT
+            url,
+            url_norm,
+            domain,
+            domain_norm,
+            login,
+            login_norm,
+            email,
+            email_norm,
+            email_domain,
+            email_domain_norm,
+            password,
+            hash
+        FROM records_stage
+        ON CONFLICT (hash) DO NOTHING
+        """
     )
+    db_execute(conn, "TRUNCATE records_stage")
+    conn.commit()
+    return cursor.rowcount
+
+
+def insert_rows(conn, rows, use_copy: bool):
+    if use_copy:
+        ensure_stage_table(conn)
+        copy_rows(conn, rows)
+        return flush_stage(conn)
+    cursor = db_executemany(conn, insert_statement(), rows)
     conn.commit()
     return cursor.rowcount
 
 
 def apply_fast_mode(conn):
-    conn.execute("PRAGMA synchronous=OFF;")
-    conn.execute("PRAGMA temp_store=MEMORY;")
-    conn.execute("PRAGMA busy_timeout=5000;")
-    try:
-        conn.execute("PRAGMA journal_mode=OFF;")
-    except sqlite3.OperationalError:
-        conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA cache_size=-200000;")
-    conn.execute("PRAGMA locking_mode=EXCLUSIVE;")
+    db_execute(conn, "SET synchronous_commit TO OFF")
+    db_execute(conn, "SET maintenance_work_mem TO '1GB'")
+    db_execute(conn, "SET temp_buffers TO '512MB'")
+    db_execute(conn, "SET wal_compression TO on")
 
 
 def drop_indexes(conn):
-    conn.execute("DROP INDEX IF EXISTS idx_records_domain_norm")
-    conn.execute("DROP INDEX IF EXISTS idx_records_login_norm")
-    conn.execute("DROP INDEX IF EXISTS idx_records_email_norm")
-    conn.execute("DROP INDEX IF EXISTS idx_records_email_domain_norm")
-    conn.execute("DROP INDEX IF EXISTS idx_records_url_norm")
+    db_execute(conn, "DROP INDEX IF EXISTS idx_records_domain_norm")
+    db_execute(conn, "DROP INDEX IF EXISTS idx_records_login_norm")
+    db_execute(conn, "DROP INDEX IF EXISTS idx_records_email_norm")
+    db_execute(conn, "DROP INDEX IF EXISTS idx_records_email_domain_norm")
+    db_execute(conn, "DROP INDEX IF EXISTS idx_records_url_norm")
 
 
 def recreate_indexes(conn):
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_records_domain_norm ON records(domain_norm)"
+    db_execute(
+        conn, "CREATE INDEX IF NOT EXISTS idx_records_domain_norm ON records(domain_norm)"
     )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_records_login_norm ON records(login_norm)"
+    db_execute(
+        conn, "CREATE INDEX IF NOT EXISTS idx_records_login_norm ON records(login_norm)"
     )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_records_email_norm ON records(email_norm)"
+    db_execute(
+        conn, "CREATE INDEX IF NOT EXISTS idx_records_email_norm ON records(email_norm)"
     )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_records_email_domain_norm ON records(email_domain_norm)"
+    db_execute(
+        conn,
+        "CREATE INDEX IF NOT EXISTS idx_records_email_domain_norm ON records(email_domain_norm)",
     )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_records_url_norm ON records(url_norm)"
+    db_execute(
+        conn, "CREATE INDEX IF NOT EXISTS idx_records_url_norm ON records(url_norm)"
     )
     conn.commit()
+
+
+def use_unlogged(conn):
+    db_execute(conn, "ALTER TABLE records SET UNLOGGED")
+
+
+def use_logged(conn):
+    db_execute(conn, "ALTER TABLE records SET LOGGED")
 
 
 def main():
@@ -224,7 +300,7 @@ def main():
         action="store_true",
         help="Рекурсивный обход директорий",
     )
-    parser.add_argument("--batch-size", type=int, default=2000)
+    parser.add_argument("--batch-size", type=int, default=20000)
     parser.add_argument(
         "--fast",
         action="store_true",
@@ -236,11 +312,13 @@ def main():
     if not root.exists():
         raise SystemExit(f"Путь не найден: {root}")
 
+    configure_database(DATABASE_URL)
     conn = get_conn()
     init_db(conn)
     if args.fast:
         drop_indexes(conn)
         apply_fast_mode(conn)
+        use_unlogged(conn)
 
     files = list(iter_files(root, args.pattern, args.recursive))
     total_size = sum(path.stat().st_size for path in files)
@@ -249,10 +327,13 @@ def main():
     for index, path in enumerate(files, start=1):
         file_size = path.stat().st_size
         print(f"[{index}/{len(files)}] {path} ({format_bytes(file_size)})", flush=True)
-        inserted, file_done = ingest_file(conn, path, args.batch_size, total_done, total_size)
+        inserted, file_done = ingest_file(
+            conn, path, args.batch_size, total_done, total_size, use_copy=True
+        )
         total_done += file_done
         total_inserted += inserted
     if args.fast:
+        use_logged(conn)
         recreate_indexes(conn)
     print(total_inserted)
 

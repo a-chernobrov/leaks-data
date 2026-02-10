@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: leakbase
+      POSTGRES_USER: leakbase
+      POSTGRES_PASSWORD: leakbase
+    ports:
+      - "5432:5432"
+    volumes:
+      - leakbase_pgdata:/var/lib/postgresql/data
+  ingest:
+    image: python:3.11-slim
+    working_dir: /opt/my-tools/leakbase
+    depends_on:
+      - postgres
+    volumes:
+      - .:/opt/my-tools/leakbase
+    command: ["python", "/opt/my-tools/leakbase/ingest.py", "--recursive"]
+volumes:
+  leakbase_pgdata:
