@@ -95,6 +95,16 @@ def tld_clause(value: str):
     return "domain_norm LIKE ?", ["%"+value]
 
 
+def login_password_clause(value: str):
+    value = value.strip()
+    if not value:
+        return None
+    if "*" in value:
+        pattern = value.replace("*", "%")
+        return "(login_norm LIKE ? OR password LIKE ?)", [pattern.lower(), pattern]
+    return "(login_norm = ? OR password = ?)", [value.lower(), value]
+
+
 def detect_mode(value: str):
     value = value.strip()
     if not value:
@@ -103,6 +113,8 @@ def detect_mode(value: str):
         return "ip"
     if tld_clause(value):
         return "tld"
+    if "*" in value and "@" not in value and "://" not in value and "/" not in value:
+        return "login_password"
     if value.startswith("@"):
         return "email_domain"
     if "@" in value:
@@ -118,6 +130,7 @@ def build_query(
     url: str,
     email: str,
     login: str,
+    password: str,
     email_domain: str,
     q: str,
     mode: str,
@@ -155,7 +168,15 @@ def build_query(
     if email:
         return "email_norm = ?", [email.strip().lower()]
     if login:
+        if "*" in login:
+            pattern = login.strip().replace("*", "%").lower()
+            return "login_norm LIKE ?", [pattern]
         return "login_norm = ?", [login.strip().lower()]
+    if password:
+        if "*" in password:
+            pattern = password.strip().replace("*", "%")
+            return "password LIKE ?", [pattern]
+        return "password = ?", [password.strip()]
     if email_domain:
         return "email_domain_norm = ?", [normalize_email_domain(email_domain)]
     if q:
@@ -168,6 +189,10 @@ def build_query(
             clause = tld_clause(q)
             if clause:
                 return clause
+        if detected == "login_password":
+            clause = login_password_clause(q)
+            if clause:
+                return clause
         if detected == "url":
             clause, args = url_filters(q)
             return clause, args
@@ -175,6 +200,9 @@ def build_query(
             return "email_norm = ?", [q.strip().lower()]
         if detected == "email_domain":
             return "email_domain_norm = ?", [normalize_email_domain(q)]
+        clause = login_password_clause(q)
+        if clause:
+            return clause
         return "login_norm = ?", [q.strip().lower()]
     return "1=0", []
 
@@ -197,10 +225,15 @@ def index():
           background: #0f172a;
           color: #e2e8f0;
           min-height: 100vh;
-          display: flex;
-          align-items: center;
-          justify-content: center;
           padding: 24px;
+        }
+        .layout {
+          width: min(1040px, 100%);
+          margin: 0 auto;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 260px;
+          gap: 18px;
+          align-items: start;
         }
         .card {
           width: min(720px, 100%);
@@ -341,37 +374,72 @@ def index():
         .spinner.active {
           display: inline-block;
         }
+        .legend {
+          background: #0b1220;
+          border: 1px solid #1f2937;
+          border-radius: 16px;
+          padding: 18px;
+        }
+        .legend-title {
+          font-size: 14px;
+          font-weight: 600;
+          margin-bottom: 10px;
+        }
+        .legend-subtitle {
+          font-size: 12px;
+          color: #94a3b8;
+          margin-bottom: 12px;
+        }
+        .legend-list {
+          list-style: none;
+          padding: 0;
+          margin: 0;
+          display: grid;
+          gap: 10px;
+          font-size: 13px;
+          color: #cbd5f5;
+        }
         @keyframes spin {
           to { transform: rotate(360deg); }
         }
       </style>
     </head>
     <body>
-      <div class="card">
-        <div class="title">Поиск утечек</div>
-        <div class="subtitle">URL, email, логин, домен почты или IP</div>
-        <div class="search">
-          <input id="q" type="text" placeholder="Например: example.com или @mail.ru" />
-          <button id="search">Искать</button>
-          <a id="download" class="download disabled" href="#" download>Скачать все</a>
-        </div>
-        <div class="stats">
-          <div class="stat">
-            <div class="stat-label">Всего записей</div>
-            <div class="stat-value" id="total">—</div>
+      <div class="layout">
+        <div class="card">
+          <div class="title">Поиск утечек</div>
+          <div class="subtitle">URL, email, логин, домен почты или IP</div>
+          <div class="search">
+            <input id="q" type="text" placeholder="Например: example.com или @mail.ru" />
+            <button id="search">Искать</button>
+            <a id="download" class="download disabled" href="#" download>Скачать все</a>
           </div>
-          <div class="stat">
-            <div class="stat-label">Найдено по запросу</div>
-            <div class="stat-value" id="count">—</div>
+          <div class="stats">
+            <div class="stat">
+              <div class="stat-label">Всего записей</div>
+              <div class="stat-value" id="total">—</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">Найдено по запросу</div>
+              <div class="stat-value" id="count">—</div>
+            </div>
+          </div>
+          <div class="hint">Первые 20. IP: 1.* / 1.1.* / 1.2.3.* / 1.2.3.0/24 / 1.0.0.0/18. TLD: .ru. Логин/пароль: biancacoalagi*</div>
+          <div class="results" id="results"></div>
+          <div class="result-meta" id="result-meta"></div>
+          <div class="status">
+            <span class="spinner" id="spinner"></span>
+            <span id="status-text"></span>
           </div>
         </div>
-        <div class="hint">Первые 20. IP: 1.* / 1.1.* / 1.2.3.* / 1.2.3.0/24 / 1.0.0.0/18. TLD: .ru</div>
-        <div class="results" id="results"></div>
-        <div class="result-meta" id="result-meta"></div>
-        <div class="status">
-          <span class="spinner" id="spinner"></span>
-          <span id="status-text"></span>
-        </div>
+        <aside class="legend">
+          <div class="legend-title">Легенда</div>
+          <div class="legend-subtitle">По текущему запросу</div>
+          <ul class="legend-list">
+            <li>Пароли встречающиеся несколько раз: <span id="stat-dup">—</span></li>
+            <li>Пароли которые содержат логин или его значительную часть: <span id="stat-login">—</span></li>
+          </ul>
+        </aside>
       </div>
       <script>
         const input = document.getElementById("q")
@@ -383,10 +451,18 @@ def index():
         const download = document.getElementById("download")
         const spinner = document.getElementById("spinner")
         const statusText = document.getElementById("status-text")
+        const statDup = document.getElementById("stat-dup")
+        const statLogin = document.getElementById("stat-login")
         async function loadTotal() {
           const res = await fetch("/api/stats")
           const data = await res.json()
           total.textContent = data.total
+        }
+        async function loadPasswordStats(q) {
+          const res = await fetch(`/api/password_stats?q=${encodeURIComponent(q)}`)
+          const data = await res.json()
+          statDup.textContent = data.repeated
+          statLogin.textContent = data.contains_login
         }
         function updateDownload(q) {
           if (!q) {
@@ -406,11 +482,14 @@ def index():
             updateDownload("")
             statusText.textContent = ""
             spinner.classList.remove("active")
+            statDup.textContent = "—"
+            statLogin.textContent = "—"
             return
           }
           updateDownload(q)
           statusText.textContent = "Поиск..."
           spinner.classList.add("active")
+          loadPasswordStats(q)
           const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&include_items=true&limit=20&offset=0`)
           const data = await res.json()
           count.textContent = data.count
@@ -446,6 +525,7 @@ def search(
     url: str = Query(default=""),
     email: str = Query(default=""),
     login: str = Query(default=""),
+    password: str = Query(default=""),
     email_domain: str = Query(default=""),
     q: str = Query(default=""),
     mode: str = Query(default=""),
@@ -453,7 +533,7 @@ def search(
     offset: int = Query(default=0, ge=0),
     include_items: bool = Query(default=False),
 ):
-    where, args = build_query(url, email, login, email_domain, q, mode)
+    where, args = build_query(url, email, login, password, email_domain, q, mode)
     conn = get_conn()
     count = conn.execute(f"SELECT COUNT(*) FROM records WHERE {where}", args).fetchone()[0]
     items = []
@@ -480,16 +560,53 @@ def stats():
     return JSONResponse({"total": total})
 
 
+@app.get("/api/password_stats")
+def password_stats(
+    url: str = Query(default=""),
+    email: str = Query(default=""),
+    login: str = Query(default=""),
+    password: str = Query(default=""),
+    email_domain: str = Query(default=""),
+    q: str = Query(default=""),
+    mode: str = Query(default=""),
+):
+    if not any([url, email, login, password, email_domain, q, mode]):
+        where, args = "1=1", []
+    else:
+        where, args = build_query(url, email, login, password, email_domain, q, mode)
+    conn = get_conn()
+    repeated = conn.execute(
+        f"SELECT COUNT(*) FROM (SELECT password FROM records WHERE {where} GROUP BY password HAVING COUNT(*) > 1)",
+        args,
+    ).fetchone()[0]
+    contains_login = conn.execute(
+        f"""
+        SELECT COUNT(*) FROM records
+        WHERE {where}
+          AND login IS NOT NULL
+          AND LENGTH(login) >= 4
+          AND (
+            INSTR(LOWER(password), LOWER(login)) > 0
+            OR INSTR(LOWER(password), LOWER(SUBSTR(login, 1, 4))) > 0
+          )
+        """,
+        args,
+    ).fetchone()[0]
+    conn.close()
+    return JSONResponse({"repeated": repeated, "contains_login": contains_login})
+
+
 @app.get("/api/download")
 def download_all(
     url: str = Query(default=""),
     email: str = Query(default=""),
     login: str = Query(default=""),
+    password: str = Query(default=""),
     email_domain: str = Query(default=""),
     q: str = Query(default=""),
     mode: str = Query(default=""),
 ):
-    where, args = build_query(url, email, login, email_domain, q, mode)
+    where, args = build_query(url, email, login, password, email_domain, q, mode)
 
     def generate():
         conn = get_conn()
