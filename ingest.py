@@ -22,6 +22,7 @@ def normalize_url(value: str):
 
 
 def parse_line(line: str):
+    line = line.replace("\x00", "")
     line = line.strip()
     if not line:
         return None
