@@ -1,4 +1,5 @@
 import argparse
+import dbm
 import hashlib
 from pathlib import Path
 from urllib.parse import urlparse
@@ -143,6 +144,72 @@ def ingest_file(conn, path: Path, batch_size: int, total_done: int, total_size: 
         total_size,
     )
     return inserted, file_done
+
+
+def clean_files(
+    root: Path,
+    pattern: str,
+    recursive: bool,
+    output_path: Path,
+    dedup: bool,
+    dedup_db_path: Path | None,
+):
+    files = list(iter_files(root, pattern, recursive))
+    total_size = sum(path.stat().st_size for path in files)
+    total_done = 0
+    cleaned = 0
+    skipped = 0
+    seen = None
+    if dedup:
+        db_path = dedup_db_path or output_path.with_suffix(output_path.suffix + ".dbm")
+        seen = dbm.open(str(db_path), "c")
+    try:
+        with output_path.open("w", encoding="utf-8") as output:
+            for index, path in enumerate(files, start=1):
+                file_size = path.stat().st_size
+                print(f"[{index}/{len(files)}] {path} ({format_bytes(file_size)})", flush=True)
+                processed_bytes = 0
+                report_step = 5 * 1024 * 1024
+                last_report = 0
+                with path.open("r", encoding="utf-8", errors="ignore") as handle:
+                    for line in handle:
+                        processed_bytes += len(line.encode("utf-8", errors="ignore"))
+                        item = parse_line(line)
+                        if not item:
+                            continue
+                        hash_value = item[-1]
+                        if seen is not None:
+                            if hash_value in seen:
+                                skipped += 1
+                                continue
+                            seen[hash_value] = b"1"
+                        url_raw = item[0] or ""
+                        login = item[4] or ""
+                        password = item[10] or ""
+                        output.write(f"{url_raw} {login}:{password}\n")
+                        cleaned += 1
+                        file_done = processed_bytes
+                        if file_done - last_report >= report_step:
+                            report_progress(
+                                path,
+                                file_done,
+                                file_size,
+                                total_done + file_done,
+                                total_size,
+                            )
+                            last_report = file_done
+                total_done += processed_bytes
+                report_progress(
+                    path,
+                    processed_bytes,
+                    file_size,
+                    total_done,
+                    total_size,
+                )
+    finally:
+        if seen is not None:
+            seen.close()
+    print(f"cleaned={cleaned} skipped={skipped}")
 
 
 def ensure_stage_table(conn):
@@ -311,11 +378,38 @@ def main():
         action="store_true",
         help="Ускоренный режим импорта (безопасность данных ниже)",
     )
+    parser.add_argument(
+        "--clean-output",
+        default="",
+        help="Записать очищенные строки в файл и выйти",
+    )
+    parser.add_argument(
+        "--no-dedup",
+        action="store_true",
+        help="Отключить удаление дублей при очистке",
+    )
+    parser.add_argument(
+        "--dedup-db",
+        default="",
+        help="Путь к файлу dbm для удаления дублей",
+    )
     args = parser.parse_args()
 
     root = Path(args.root)
     if not root.exists():
         raise SystemExit(f"Путь не найден: {root}")
+
+    if args.clean_output:
+        dedup_db_path = Path(args.dedup_db) if args.dedup_db else None
+        clean_files(
+            root,
+            args.pattern,
+            args.recursive,
+            Path(args.clean_output),
+            dedup=not args.no_dedup,
+            dedup_db_path=dedup_db_path,
+        )
+        return
 
     configure_database(DATABASE_URL)
     conn = get_conn()

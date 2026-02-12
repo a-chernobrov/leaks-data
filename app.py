@@ -217,6 +217,106 @@ def build_query(
     return "1=0", []
 
 
+def wildcard_to_regex(value: str):
+    parts = value.split("*")
+    escaped = ".*".join(re.escape(part) for part in parts)
+    return escaped
+
+
+def build_grep_patterns(
+    url: str,
+    email: str,
+    login: str,
+    password: str,
+    email_domain: str,
+    q: str,
+    mode: str,
+):
+    patterns = []
+    if url:
+        value = url.strip()
+        if value:
+            patterns.append(r"(?i)^\s*\S*" + re.escape(value))
+        return patterns
+    if email:
+        value = email.strip()
+        if value:
+            patterns.append(r"(?i)\b" + re.escape(value) + r"\b")
+        return patterns
+    if login:
+        value = login.strip()
+        if value:
+            regex = wildcard_to_regex(value)
+            patterns.append(r"(?i)\s+" + regex + r":")
+        return patterns
+    if password:
+        value = password.strip()
+        if value:
+            regex = wildcard_to_regex(value)
+            patterns.append(r":" + regex + r"\s*$")
+        return patterns
+    if email_domain:
+        value = normalize_email_domain(email_domain)
+        if value:
+            patterns.append(r"(?i)@" + re.escape(value) + r"\b")
+        return patterns
+    if q:
+        value = q.strip()
+        detected = detect_mode(value)
+        if detected == "ip":
+            if value.endswith(".*"):
+                base = value[:-2]
+                patterns.append(r"^\s*\S*" + re.escape(base) + r"\.")
+                return patterns
+            if value.endswith("."):
+                patterns.append(r"^\s*\S*" + re.escape(value))
+                return patterns
+            if "/" in value:
+                ip, mask = value.split("/", 1)
+                if mask == "32":
+                    patterns.append(r"\b" + re.escape(ip) + r"\b")
+                    return patterns
+                if mask == "8":
+                    patterns.append(r"^\s*\S*" + re.escape(ip.split(".")[0]) + r"\.")
+                    return patterns
+                if mask == "16":
+                    parts = ip.split(".")
+                    patterns.append(r"^\s*\S*" + re.escape(".".join(parts[:2])) + r"\.")
+                    return patterns
+                if mask == "24":
+                    parts = ip.split(".")
+                    patterns.append(r"^\s*\S*" + re.escape(".".join(parts[:3])) + r"\.")
+                    return patterns
+            if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", value):
+                patterns.append(r"\b" + re.escape(value) + r"\b")
+                return patterns
+        if detected == "tld":
+            value = value.lower()
+            if value.startswith("."):
+                patterns.append(r"(?i)\." + re.escape(value[1:]) + r"(?:[/:]|\s)")
+                return patterns
+        if detected == "login_password":
+            regex = wildcard_to_regex(value)
+            patterns.append(r"(?i)\s+" + regex + r":")
+            patterns.append(r":" + regex)
+            return patterns
+        if detected == "url":
+            patterns.append(r"(?i)^\s*\S*" + re.escape(value))
+            return patterns
+        if detected == "email":
+            patterns.append(r"(?i)\b" + re.escape(value) + r"\b")
+            return patterns
+        if detected == "email_domain":
+            email_value = normalize_email_domain(value)
+            if email_value:
+                patterns.append(r"(?i)@" + re.escape(email_value) + r"\b")
+                return patterns
+        regex = wildcard_to_regex(value)
+        patterns.append(r"(?i)\s+" + regex + r":")
+        return patterns
+    return patterns
+
+
 @app.get("/", response_class=HTMLResponse)
 def index():
     return """
@@ -830,6 +930,20 @@ def search(
     return JSONResponse({"count": count, "items": items})
 
 
+@app.get("/api/grep_patterns")
+def grep_patterns_api(
+    url: str = Query(default=""),
+    email: str = Query(default=""),
+    login: str = Query(default=""),
+    password: str = Query(default=""),
+    email_domain: str = Query(default=""),
+    q: str = Query(default=""),
+    mode: str = Query(default=""),
+):
+    patterns = build_grep_patterns(url, email, login, password, email_domain, q, mode)
+    return JSONResponse({"patterns": patterns})
+
+
 @app.get("/api/stats")
 def stats():
     conn = get_conn()
@@ -880,44 +994,55 @@ def password_stats(
 
 
 @app.get("/api/calculations")
-def calculations_api():
+def calculations_api(sample_percent: float = Query(default=0, ge=0, le=100)):
     conn = get_conn()
-    cursor = db_execute(
+    base_from = "records"
+    if sample_percent and sample_percent > 0:
+        base_from = f"records TABLESAMPLE SYSTEM ({sample_percent})"
+    total_records = db_execute(conn, f"SELECT COUNT(*) FROM {base_from}").fetchone()[0]
+    contains_login_total = db_execute(
         conn,
-        """
-        SELECT login, password
-        FROM records
+        f"""
+        SELECT COUNT(*)
+        FROM {base_from}
         WHERE login IS NOT NULL
           AND password IS NOT NULL
           AND LENGTH(login) >= 4
+          AND (
+            POSITION(LOWER(login) IN LOWER(password)) > 0
+            OR POSITION(LOWER(SUBSTRING(login FROM 1 FOR 4)) IN LOWER(password)) > 0
+          )
         """
-    )
-    total = 0
-    pattern_counts = {}
-    for login, password in cursor:
-        if not login or not password:
-            continue
-        login_lower = login.lower()
-        password_lower = password.lower()
-        if login_lower in password_lower:
-            pattern = password_lower.replace(login_lower, "{login}")
-            total += 1
-            pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
-            continue
-        login_part = login_lower[:4]
-        if login_part and login_part in password_lower:
-            pattern = password_lower.replace(login_part, "{login4}")
-            total += 1
-            pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
-    sorted_patterns = sorted(pattern_counts.items(), key=lambda item: item[1], reverse=True)
-    top_patterns = sorted_patterns[:50]
-    total_records = db_execute(conn, "SELECT COUNT(*) FROM records").fetchone()[0]
-    percent = round((total / total_records) * 100, 2) if total_records else 0
+    ).fetchone()[0]
+    percent = round((contains_login_total / total_records) * 100, 2) if total_records else 0
+    top_patterns_rows = db_execute(
+        conn,
+        f"""
+        SELECT pattern, COUNT(*) AS total
+        FROM (
+            SELECT CASE
+                WHEN POSITION(LOWER(login) IN LOWER(password)) > 0
+                    THEN REPLACE(LOWER(password), LOWER(login), '{{login}}')
+                WHEN POSITION(LOWER(SUBSTRING(login FROM 1 FOR 4)) IN LOWER(password)) > 0
+                    THEN REPLACE(LOWER(password), LOWER(SUBSTRING(login FROM 1 FOR 4)), '{{login4}}')
+                ELSE NULL
+            END AS pattern
+            FROM {base_from}
+            WHERE login IS NOT NULL
+              AND password IS NOT NULL
+              AND LENGTH(login) >= 4
+        ) t
+        WHERE pattern IS NOT NULL
+        GROUP BY pattern
+        ORDER BY total DESC
+        LIMIT 50
+        """
+    ).fetchall()
     top_password_rows = db_execute(
         conn,
-        """
+        f"""
         SELECT password, COUNT(*) AS total
-        FROM records
+        FROM {base_from}
         WHERE password IS NOT NULL AND password != ''
         GROUP BY password
         ORDER BY total DESC
@@ -927,10 +1052,11 @@ def calculations_api():
     conn.close()
     return JSONResponse(
         {
-            "contains_login_total": total,
+            "contains_login_total": contains_login_total,
             "contains_login_percent": f"{percent}%",
+            "sample_percent": sample_percent,
             "top_patterns": [
-                {"pattern": pattern, "count": count} for pattern, count in top_patterns
+                {"pattern": pattern, "count": count} for pattern, count in top_patterns_rows
             ],
             "top_passwords_50": [
                 {"password": password, "count": count} for password, count in top_password_rows
