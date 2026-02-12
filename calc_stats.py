@@ -81,7 +81,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--output",
-        default="/opt/my-tools/leakbase/calculations.json",
+        default="calculations.json",
         help="Путь к файлу результата",
     )
     parser.add_argument(
@@ -128,6 +128,8 @@ def main():
     finally:
         conn.close()
     output_path = Path(args.output)
+    if output_path.parent and not output_path.parent.exists():
+        output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"готово: {output_path}", flush=True)
 
