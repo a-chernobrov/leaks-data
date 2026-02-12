@@ -10,7 +10,9 @@ def run_calculations(conn, sample_percent: float):
     base_from = "records"
     if sample_percent and sample_percent > 0:
         base_from = f"records TABLESAMPLE SYSTEM ({sample_percent})"
+    print("этап 1/3: считаю общее количество записей", flush=True)
     total_records = db_execute(conn, f"SELECT COUNT(*) FROM {base_from}").fetchone()[0]
+    print("этап 2/3: считаю логины в паролях", flush=True)
     contains_login_total = db_execute(
         conn,
         f"""
@@ -26,6 +28,7 @@ def run_calculations(conn, sample_percent: float):
         """
     ).fetchone()[0]
     percent = round((contains_login_total / total_records) * 100, 2) if total_records else 0
+    print("этап 3/3: считаю топы", flush=True)
     top_patterns_rows = db_execute(
         conn,
         f"""
@@ -88,6 +91,7 @@ def main():
     )
     args = parser.parse_args()
 
+    print("подключение к базе", flush=True)
     configure_database(DATABASE_URL)
     conn = get_conn()
     init_db(conn)
@@ -97,7 +101,7 @@ def main():
         conn.close()
     output_path = Path(args.output)
     output_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(str(output_path))
+    print(f"готово: {output_path}", flush=True)
 
 
 if __name__ == "__main__":
