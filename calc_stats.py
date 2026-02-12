@@ -101,6 +101,11 @@ def main():
         default="",
         help="Строка подключения к базе, если нужно переопределить",
     )
+    parser.add_argument(
+        "--skip-init",
+        action="store_true",
+        help="Не выполнять init_db (ускоряет, если БД уже подготовлена)",
+    )
     args = parser.parse_args()
 
     print("подключение к базе", flush=True)
@@ -112,9 +117,12 @@ def main():
     except Exception as exc:
         raise SystemExit(f"ошибка подключения: {exc}")
     print("подключение установлено", flush=True)
-    print("инициализация схемы", flush=True)
-    init_db(conn)
-    print("инициализация завершена", flush=True)
+    if args.skip_init:
+        print("инициализация пропущена", flush=True)
+    else:
+        print("инициализация схемы", flush=True)
+        init_db(conn)
+        print("инициализация завершена", flush=True)
     try:
         data = run_calculations(conn, args.sample_percent)
     finally:
