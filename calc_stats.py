@@ -89,11 +89,20 @@ def main():
         default=0,
         help="Процент сэмпла TABLESAMPLE SYSTEM",
     )
+    parser.add_argument(
+        "--connect-timeout",
+        type=int,
+        default=10,
+        help="Таймаут подключения к базе (секунды)",
+    )
     args = parser.parse_args()
 
     print("подключение к базе", flush=True)
     configure_database(DATABASE_URL)
-    conn = get_conn()
+    try:
+        conn = get_conn(connect_timeout=args.connect_timeout)
+    except Exception as exc:
+        raise SystemExit(f"ошибка подключения: {exc}")
     init_db(conn)
     try:
         data = run_calculations(conn, args.sample_percent)

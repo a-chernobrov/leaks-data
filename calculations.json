@@ -1,0 +1,409 @@
+{
+  "contains_login_total": 904689,
+  "contains_login_percent": "10.31%",
+  "sample_percent": 0,
+  "top_patterns": [
+    {
+      "pattern": "{login}",
+      "count": 81343
+    },
+    {
+      "pattern": "{login}123",
+      "count": 3335
+    },
+    {
+      "pattern": "{login4}1234",
+      "count": 2870
+    },
+    {
+      "pattern": "{login}1",
+      "count": 2000
+    },
+    {
+      "pattern": "{login4}",
+      "count": 1221
+    },
+    {
+      "pattern": "{login4}12345",
+      "count": 1131
+    },
+    {
+      "pattern": "{login4}@123",
+      "count": 1019
+    },
+    {
+      "pattern": "{login4}n123",
+      "count": 982
+    },
+    {
+      "pattern": "loko{login}21",
+      "count": 941
+    },
+    {
+      "pattern": "{login4}123",
+      "count": 933
+    },
+    {
+      "pattern": "{login}@123",
+      "count": 925
+    },
+    {
+      "pattern": "{login4}a123",
+      "count": 894
+    },
+    {
+      "pattern": "{login4}{login4}",
+      "count": 793
+    },
+    {
+      "pattern": "{login}@",
+      "count": 767
+    },
+    {
+      "pattern": "{login}1234",
+      "count": 708
+    },
+    {
+      "pattern": "{login}12",
+      "count": 645
+    },
+    {
+      "pattern": "{login4}123456",
+      "count": 622
+    },
+    {
+      "pattern": "{login4}2020",
+      "count": 571
+    },
+    {
+      "pattern": "{login4}o123",
+      "count": 555
+    },
+    {
+      "pattern": "{login4}2007",
+      "count": 551
+    },
+    {
+      "pattern": "{login4}2005",
+      "count": 521
+    },
+    {
+      "pattern": "{login4}2008",
+      "count": 494
+    },
+    {
+      "pattern": "{login4}n@123",
+      "count": 471
+    },
+    {
+      "pattern": "{login4}an123",
+      "count": 462
+    },
+    {
+      "pattern": "{login4}r123",
+      "count": 449
+    },
+    {
+      "pattern": "{login4}2006",
+      "count": 446
+    },
+    {
+      "pattern": "{login4}s123",
+      "count": 434
+    },
+    {
+      "pattern": "{login4}2004",
+      "count": 430
+    },
+    {
+      "pattern": "{login}2",
+      "count": 420
+    },
+    {
+      "pattern": "{login}12345",
+      "count": 402
+    },
+    {
+      "pattern": "{login}{login}",
+      "count": 385
+    },
+    {
+      "pattern": "{login}!",
+      "count": 384
+    },
+    {
+      "pattern": "{login4}2009",
+      "count": 379
+    },
+    {
+      "pattern": "{login4}i123",
+      "count": 374
+    },
+    {
+      "pattern": "{login4}e123",
+      "count": 364
+    },
+    {
+      "pattern": "{login4}@1234",
+      "count": 363
+    },
+    {
+      "pattern": "iam{login4}505",
+      "count": 355
+    },
+    {
+      "pattern": "{login4}to0111",
+      "count": 339
+    },
+    {
+      "pattern": "{login4}l123",
+      "count": 338
+    },
+    {
+      "pattern": "{login4}123456789",
+      "count": 327
+    },
+    {
+      "pattern": "{login4}2003",
+      "count": 324
+    },
+    {
+      "pattern": "{login}0",
+      "count": 324
+    },
+    {
+      "pattern": "{login4}n",
+      "count": 320
+    },
+    {
+      "pattern": "{login}23",
+      "count": 318
+    },
+    {
+      "pattern": "{login}01",
+      "count": 318
+    },
+    {
+      "pattern": "{login}2020",
+      "count": 317
+    },
+    {
+      "pattern": "{login4}o{login4}o9",
+      "count": 310
+    },
+    {
+      "pattern": "{login4}y123",
+      "count": 308
+    },
+    {
+      "pattern": "{login4}1997",
+      "count": 304
+    },
+    {
+      "pattern": "{login}3",
+      "count": 302
+    }
+  ],
+  "top_passwords_50": [
+    {
+      "password": "123456",
+      "count": 29693
+    },
+    {
+      "password": "NULL",
+      "count": 26330
+    },
+    {
+      "password": "?",
+      "count": 12997
+    },
+    {
+      "password": "None",
+      "count": 12186
+    },
+    {
+      "password": "12345678",
+      "count": 10618
+    },
+    {
+      "password": "123456789",
+      "count": 9740
+    },
+    {
+      "password": "1234",
+      "count": 6750
+    },
+    {
+      "password": "12345",
+      "count": 5110
+    },
+    {
+      "password": "123",
+      "count": 3889
+    },
+    {
+      "password": "password",
+      "count": 3746
+    },
+    {
+      "password": "admin",
+      "count": 3517
+    },
+    {
+      "password": "1234567890",
+      "count": 2612
+    },
+    {
+      "password": "1",
+      "count": 2109
+    },
+    {
+      "password": "Erd981946",
+      "count": 2025
+    },
+    {
+      "password": "lokodomun21",
+      "count": 1745
+    },
+    {
+      "password": "123123",
+      "count": 1691
+    },
+    {
+      "password": "12345678910",
+      "count": 1686
+    },
+    {
+      "password": "01",
+      "count": 1670
+    },
+    {
+      "password": "1234567",
+      "count": 1668
+    },
+    {
+      "password": "UNKNOWN",
+      "count": 1651
+    },
+    {
+      "password": "********",
+      "count": 1622
+    },
+    {
+      "password": "0",
+      "count": 1595
+    },
+    {
+      "password": "Password",
+      "count": 1555
+    },
+    {
+      "password": "Pass@123",
+      "count": 1457
+    },
+    {
+      "password": "Aa123456",
+      "count": 1360
+    },
+    {
+      "password": "111111",
+      "count": 1357
+    },
+    {
+      "password": "Nokia1202",
+      "count": 1345
+    },
+    {
+      "password": "P@ssw0rd",
+      "count": 1298
+    },
+    {
+      "password": "bella1973",
+      "count": 1250
+    },
+    {
+      "password": "qwerty123",
+      "count": 1228
+    },
+    {
+      "password": "******",
+      "count": 1097
+    },
+    {
+      "password": "qwerty",
+      "count": 962
+    },
+    {
+      "password": "112233",
+      "count": 961
+    },
+    {
+      "password": "1111",
+      "count": 943
+    },
+    {
+      "password": "alex1234",
+      "count": 889
+    },
+    {
+      "password": "Kolajp22",
+      "count": 886
+    },
+    {
+      "password": "abc123",
+      "count": 865
+    },
+    {
+      "password": "000000",
+      "count": 864
+    },
+    {
+      "password": "pakistan@123",
+      "count": 861
+    },
+    {
+      "password": "qwertyuiop",
+      "count": 843
+    },
+    {
+      "password": "987654321",
+      "count": 840
+    },
+    {
+      "password": "iamEZAZ505",
+      "count": 803
+    },
+    {
+      "password": "mg4444gm",
+      "count": 794
+    },
+    {
+      "password": "1q2w3e4r",
+      "count": 770
+    },
+    {
+      "password": "0000",
+      "count": 766
+    },
+    {
+      "password": "abcd1234",
+      "count": 758
+    },
+    {
+      "password": "chocolat36",
+      "count": 744
+    },
+    {
+      "password": "102030",
+      "count": 739
+    },
+    {
+      "password": "klmpoi",
+      "count": 737
+    },
+    {
+      "password": "Mykel@12",
+      "count": 714
+    }
+  ]
+}

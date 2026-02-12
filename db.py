@@ -49,12 +49,14 @@ def insert_statement():
     """
 
 
-def get_conn():
+def get_conn(connect_timeout: int | None = None):
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL is not configured")
     if psycopg is None:
         raise RuntimeError("psycopg is not installed")
-    return psycopg.connect(DATABASE_URL)
+    if connect_timeout is None:
+        return psycopg.connect(DATABASE_URL)
+    return psycopg.connect(DATABASE_URL, connect_timeout=connect_timeout)
 
 
 def ip_to_int(value):
