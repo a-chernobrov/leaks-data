@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 from pathlib import Path
 
 from app import DATABASE_URL
@@ -95,15 +96,25 @@ def main():
         default=10,
         help="Таймаут подключения к базе (секунды)",
     )
+    parser.add_argument(
+        "--db-url",
+        default="",
+        help="Строка подключения к базе, если нужно переопределить",
+    )
     args = parser.parse_args()
 
     print("подключение к базе", flush=True)
-    configure_database(DATABASE_URL)
+    db_url = args.db_url or os.getenv("DATABASE_URL", DATABASE_URL)
+    print(f"db_url: {db_url}", flush=True)
+    configure_database(db_url)
     try:
         conn = get_conn(connect_timeout=args.connect_timeout)
     except Exception as exc:
         raise SystemExit(f"ошибка подключения: {exc}")
+    print("подключение установлено", flush=True)
+    print("инициализация схемы", flush=True)
     init_db(conn)
+    print("инициализация завершена", flush=True)
     try:
         data = run_calculations(conn, args.sample_percent)
     finally:
